@@ -12,7 +12,13 @@ var plumber      = require('gulp-plumber');
 var rename       = require("gulp-rename");
 var clean        = require('gulp-clean');
 var gutil        = require('gulp-util');
-
+var browserify   = require('browserify');
+var source       = require('vinyl-source-stream');
+var babelify     = require('babelify');
+var watchify     = require('watchify');
+var sourcemaps   = require('gulp-sourcemaps');
+var uglify       = require('gulp-uglify');
+var buffer       = require('vinyl-buffer');
 
 
 // ----------------------------------------------------------------------------------------
@@ -26,7 +32,8 @@ var src = {
   html: 'app/*.html',
   img: 'app/img/**/*',
   js: 'app/js/**/*',
-  fonts: 'app/fonts/**/*'
+  fonts: 'app/fonts/**/*',
+  appjs: 'app/js/app.js'
 };
 
 var dest = {
@@ -35,7 +42,8 @@ var dest = {
   img: 'dist/img',
   fonts: 'dist/fonts',
   js: 'dist/js',
-  html: 'dist'
+  html: 'dist',
+  appjs: 'dist/js'
 };
 
 var name = {
@@ -72,14 +80,66 @@ gulp.task('html', function() {
 });
 
 // Task: JS
-gulp.task('js', function() {
-  return gulp.src(src.js)
-    .pipe(gulp.dest(dest.js))
-    .pipe(browserSync.reload({stream: true}))
+// gulp.task('js', function() {
+//   return gulp.src(src.js)
+    //.pipe(gulp.dest(dest.js))
+    // .pipe(browserSync.reload({stream: true}))
     //catch errors
     //.on('error', gutil.log);
+// });
 
-});
+
+// Task: Browserify + Watchify
+gulp.task('watchify', function () {
+  //var args = merge(watchify.args, { debug: true })
+  var args = {
+    entries: [src.appjs],
+    debug: true,
+    cache: {},
+    packageCache: {},
+  };
+  var bundler = watchify(browserify(src.appjs, args).transform(babelify, {presets: ["es2015"]}));
+  //var bundler = watchify(browserify('./src/js/app.js', args)).transform(babelify, {presets: ["es2015"]})
+  bundle_js(bundler)
+
+  bundler.on('update', function () {
+    bundle_js(bundler)
+  })
+})
+
+
+function bundle_js(bundler) {
+  return bundler.bundle()
+    .pipe(source(src.appjs))
+    .pipe(buffer())
+    .pipe(gulp.dest(dest.appjs))
+    .pipe(rename('bundle.js'))
+    .pipe(sourcemaps.init({ loadMaps: true }))
+      // capture sourcemaps from transforms
+      .pipe(uglify())
+    .pipe(sourcemaps.write('.'))
+    .pipe(gulp.dest(dest.appjs))
+    .pipe(browserSync.reload({stream:true}));
+}
+
+// Task: Browserify without watchify
+gulp.task('browserify', function () {
+  var bundler = browserify(src.appjs, { debug: true }).transform(babelify, {presets: ["es2015"]})
+
+  return bundle_js(bundler)
+})
+
+// Browserify without sourcemaps (or watchify)
+gulp.task('browserify-prod', function () {
+  var bundler = browserify(src.appjs).transform(babelify, {presets: ["es2015"]})
+
+  return bundler.bundle()
+    .pipe(source(src.appjs))
+    .pipe(buffer())
+    .pipe(rename('bundle.js'))
+    .pipe(uglify())
+    .pipe(gulp.dest(dest.appjs))
+})
 
 // Task: Migrate Files
 gulp.task('migrate', function() {
@@ -100,17 +160,16 @@ gulp.task('migrate', function() {
     .pipe(gulp.dest(dest.img));
 
   // Grab JS
-  gulp.src(src.js)
-    .pipe(plumber())
-    .pipe(gulp.dest(dest.js));
+  // gulp.src(src.js)
+  //   .pipe(plumber())
+  //   .pipe(gulp.dest(dest.js));
 
 });
 
 // Task: Watch
-gulp.task('watch', ['browserSync', 'sass', 'html'], function() {
+gulp.task('watch', ['watchify', 'browserSync', 'sass', 'html',], function() {
   gulp.watch(src.sass, ['sass']);
   gulp.watch(src.html, ['html']);
-  gulp.watch(src.js,   ['js']);
 });
 
 // Task: Clean
